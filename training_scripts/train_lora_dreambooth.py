@@ -30,6 +30,8 @@ from huggingface_hub import HfFolder, Repository, whoami
 from tqdm.auto import tqdm
 from transformers import CLIPTextModel, CLIPTokenizer
 
+import sys
+sys.path.append("../")
 from lora_diffusion import (
     extract_lora_ups_down,
     inject_trainable_lora,
@@ -96,7 +98,7 @@ class DreamBoothDataset(Dataset):
         if resize:
             img_transforms.append(
                 transforms.Resize(
-                    size, interpolation=transforms.InterpolationMode.BILINEAR
+                    (size,size), interpolation=transforms.InterpolationMode.BILINEAR
                 )
             )
         if center_crop:
@@ -223,7 +225,6 @@ def parse_args(input_args=None):
     parser.add_argument(
         "--with_prior_preservation",
         default=False,
-        action="store_true",
         help="Flag to add prior preservation loss.",
     )
     parser.add_argument(

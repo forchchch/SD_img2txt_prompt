@@ -10,6 +10,8 @@ import inspect
 from pathlib import Path
 from typing import Optional
 import random
+import sys
+sys.path.append("../")
 
 import torch
 import torch.nn.functional as F
@@ -175,7 +177,7 @@ class DreamBoothTiDataset(Dataset):
             self.image_transforms = transforms.Compose(
                 [
                     transforms.Resize(
-                        size, interpolation=transforms.InterpolationMode.BILINEAR
+                        (size, size), interpolation=transforms.InterpolationMode.BILINEAR
                     ),
                     transforms.CenterCrop(size)
                     if center_crop
@@ -574,6 +576,7 @@ def parse_args(input_args=None):
     )
     parser.add_argument(
         "--just_ti",
+        default=False,
         action="store_true",
         help="Debug to see just ti",
     )

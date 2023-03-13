@@ -9,3 +9,7 @@ exps*
 .vscode
 build
 lora_diffusion.egg-info
+class_data
+training_data
+output
+.ipynb*
