@@ -39,9 +39,9 @@ def prompt_based_generation(pipe, vae, i2t_prompt_model, prompt, file_name, test
                 prompt_embeds = None,
                 negative_prompt_embeds = None)
         img_feature = torch.cat([torch.zeros_like(img_feature) ,img_feature]) if do_classifier_free_guidance else img_feature
-        i2t_emb = i2t_prompt_model(img_feature, prompt_embeds)
-        tv_prompt = torch.cat([prompt_embeds,i2t_emb], dim=1)
-
+        i2t_emb = i2t_prompt_model(img_feature)
+        #tv_prompt = torch.cat([prompt_embeds,i2t_emb], dim=1)
+        tv_prompt = 0.5*i2t_emb + 0.5*prompt_embeds
         pipe.scheduler.set_timesteps(test_num_inference_steps, device=device)
         timesteps = pipe.scheduler.timesteps
         num_channels_latents = pipe.unet.in_channels
@@ -86,7 +86,7 @@ def prompt_based_generation(pipe, vae, i2t_prompt_model, prompt, file_name, test
     i2t_prompt_model.train()
 
 
-def jupyter_prompt_based_generation(pipe, vae, i2t_prompt_model, prompt, reference_image, guidance):
+def jupyter_prompt_based_generation(pipe, vae, i2t_prompt_model, prompt, reference_image, guidance, eta=0.5):
     i2t_prompt_model.eval()
     pipe.scheduler = EulerAncestralDiscreteScheduler.from_config(pipe.scheduler.config)
     with torch.no_grad():
@@ -107,8 +107,9 @@ def jupyter_prompt_based_generation(pipe, vae, i2t_prompt_model, prompt, referen
                 prompt_embeds = None,
                 negative_prompt_embeds = None)
         img_feature = torch.cat([torch.zeros_like(img_feature),img_feature]) if do_classifier_free_guidance else img_feature
-        i2t_emb = i2t_prompt_model(img_feature, prompt_embeds)
-        tv_prompt = torch.cat([prompt_embeds,i2t_emb], dim=1)
+        i2t_emb = i2t_prompt_model(img_feature)
+        tv_prompt = eta*i2t_emb + (1-eta)*prompt_embeds
+        #tv_prompt = torch.cat([prompt_embeds,i2t_emb], dim=1)
 
         pipe.scheduler.set_timesteps(test_num_inference_steps, device=device)
         timesteps = pipe.scheduler.timesteps

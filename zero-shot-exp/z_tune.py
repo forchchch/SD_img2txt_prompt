@@ -96,6 +96,11 @@ def my_parse_args():
         help="Flag to use the textual prior preservation loss.",
     )
     parser.add_argument(
+        "--joint_loss",
+        action = "store_true",
+        help="Flag to use the textual prior preservation loss.",
+    )
+    parser.add_argument(
         "--prior_loss_weight",
         type=float,
         default=1.0,
@@ -238,7 +243,7 @@ def my_parse_args():
         help="Epsilon value for the Adam optimizer",
     )
     parser.add_argument(
-        "--max_grad_norm", default=5.0, type=float, help="Max gradient norm."
+        "--max_grad_norm", default=1.0, type=float, help="Max gradient norm."
     )
     parser.add_argument(
         "--logging_dir",
@@ -288,7 +293,6 @@ def my_parse_args():
     parser.add_argument(
         "--use_xformers", action="store_true", help="Whether or not to use xformers"
     )
-    
     args = parser.parse_args()
     return args
 
@@ -468,6 +472,7 @@ def main(args):
     logger.info(f"  Total train batch size (w. parallel, distributed & accumulation) = {total_batch_size}")
     logger.info(f"  Gradient Accumulation steps = {args.gradient_accumulation_steps}")
     logger.info(f"  Total optimization steps = {args.max_train_steps}")    
+    logger.info(f"  running scripts: {args}")
     
     progress_bar = tqdm( range(args.max_train_steps), disable=not accelerator.is_local_main_process )
     progress_bar.set_description("Steps")
@@ -502,10 +507,11 @@ def main(args):
             encoder_hidden_states = text_encoder( instance_ids )[0] 
             
             # Get the img2text embedding for conditionining
-            instance_i2t_emb = img2txt_prompt_model(instance_latents, encoder_hidden_states)
-            tv_hidden_state = torch.cat([encoder_hidden_states, instance_i2t_emb], dim=1)
-
+            instance_i2t_emb = img2txt_prompt_model(instance_latents)
+            # tv_hidden_state = torch.cat([encoder_hidden_states, instance_i2t_emb], dim=1)
+            tv_hidden_state = 0.5*instance_i2t_emb + 0.5*encoder_hidden_states
             # Predict the noise residual
+            
             instance_model_pred = unet(noisy_latents, timesteps, tv_hidden_state).sample
 
             # Get the target for loss depending on the prediction type
@@ -541,6 +547,7 @@ def main(args):
                     raise ValueError(f"Unknown prediction type {noise_scheduler.config.prediction_type}")
 
                 loss = loss + args.prior_loss_weight*F.mse_loss(scenario_model_pred.float(), scenario_target.float(), reduction="mean")  
+                
             loss = loss/args.gradient_accumulation_steps              
             accelerator.backward(loss)
             global_step += 1

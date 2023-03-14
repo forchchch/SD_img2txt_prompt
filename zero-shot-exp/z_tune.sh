@@ -4,7 +4,7 @@ export INSTANCE_DIR="./training_data/images"
 export SCENARIO_DIR="./training_data/aux_images"
 export OUTPUT_DIR="./output"
 
-CUDA_VISIBLE_DEVICES=0 accelerate launch z_tune.py \
+CUDA_VISIBLE_DEVICES=2 accelerate launch z_tune.py \
   --pretrained_model_name_or_path=$MODEL_NAME  \
   --instance_data_dir=$INSTANCE_DIR \
   --scenario_data_dir=$SCENARIO_DIR \
@@ -18,7 +18,8 @@ CUDA_VISIBLE_DEVICES=0 accelerate launch z_tune.py \
   --max_train_steps=3000 \
   --save_steps=200 \
   --lora_rank=4 \
-  --exp_name="0.1_text_reg" \
+  --exp_name="addemb_1.0text_reg_lr1e-4" \
   --guidance_scale=0.0 \
-  --prior_loss_weight=0.1 \
+  --prior_loss_weight=1.0 \
   --text_reg \
+  # --joint_loss \
