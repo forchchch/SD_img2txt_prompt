@@ -13,3 +13,9 @@ class_data
 training_data
 output
 .ipynb*
+dataset
+lora-scripts
+open_clip
+training_dataset
+*.jpg
+dreambooth
