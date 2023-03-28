@@ -19,7 +19,7 @@ def dreambooth_save(pipe, prompt, save_dir, guidance_scale):
 def joint_visualization_train(pipe, i2t_prompt_model, prompt, guidance, save_dir, preprocess, eta=0.5):
     num_images_per_prompt = 1
     test_num_inference_steps = 50
-    ref_image1 = preprocess(Image.open("/DATA/DATANAS1/chenhong/diffusion_research/dreambooth_data/backpack/03.jpg")).unsqueeze(0).to("cuda")
+    ref_image1 = preprocess(Image.open("/DATA/DATANAS1/chenhong/diffusion_research/dreambooth_data/vase/03.jpg")).unsqueeze(0).to("cuda")
     pipe.scheduler = EulerAncestralDiscreteScheduler.from_config(pipe.scheduler.config)
     with torch.no_grad():
         

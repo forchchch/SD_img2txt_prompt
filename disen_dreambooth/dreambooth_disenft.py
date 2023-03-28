@@ -33,6 +33,9 @@ from utils import my_make_dir, get_logger, save_torch_model
 from dataset import DreamBoothDataset, PromptDataset
 from visualization import dreambooth_save, joint_visualization_train
 import open_clip
+from disen_net import Uncertainty_weighter
+
+    
 
 clip_trans = transforms.Resize( (224, 224), interpolation=transforms.InterpolationMode.BILINEAR)
 
@@ -112,6 +115,11 @@ def my_parse_args():
     )
     parser.add_argument(
         "--with_prior_preservation",
+        action="store_true",
+        help="Flag to add prior preservation loss.",
+    )
+    parser.add_argument(
+        "--uncert",
         action="store_true",
         help="Flag to add prior preservation loss.",
     )
@@ -452,16 +460,31 @@ def main(args):
     if args.scale_lr:
         args.learning_rate = (args.learning_rate* args.gradient_accumulation_steps* args.train_batch_size * accelerator.num_processes)
     text_lr = (args.learning_rate if args.learning_rate_text is None else args.learning_rate_text)
-    params_to_optimize = (
-        [
-            {"params": itertools.chain(*unet_lora_params), "lr": args.learning_rate},
-            {"params": itertools.chain(*text_encoder_lora_params), "lr": text_lr}
-            
-        ] if args.train_text_encoder
-        else [
-            {"params": itertools.chain(*unet_lora_params), "lr": args.learning_rate},
-        ]
-    )
+    if args.uncert:
+        uncert_net = Uncertainty_weighter()
+        params_to_optimize = (
+            [
+                {"params": itertools.chain(*unet_lora_params), "lr": args.learning_rate},
+                {"params": itertools.chain(*text_encoder_lora_params), "lr": text_lr},
+                {"params": uncert_net.parameters(), "lr": args.learning_rate},
+                
+            ] if args.train_text_encoder
+            else [
+                {"params": itertools.chain(*unet_lora_params), "lr": args.learning_rate},
+                {"params": uncert_net.parameters(), "lr": args.learning_rate},
+            ]
+        )
+    else:
+        params_to_optimize = (
+            [
+                {"params": itertools.chain(*unet_lora_params), "lr": args.learning_rate},
+                {"params": itertools.chain(*text_encoder_lora_params), "lr": text_lr}
+                
+            ] if args.train_text_encoder
+            else [
+                {"params": itertools.chain(*unet_lora_params), "lr": args.learning_rate},
+            ]
+        )
     
     optimizer_class = torch.optim.AdamW
     optimizer = optimizer_class(
@@ -487,20 +510,24 @@ def main(args):
         weight_dtype = torch.float16
     elif accelerator.mixed_precision == "bf16":
         weight_dtype = torch.bfloat16
-    if args.train_text_encoder:
-        (unet, text_encoder, optimizer, train_dataloader, lr_scheduler) = accelerator.prepare(unet, 
-                                         text_encoder, optimizer, train_dataloader, lr_scheduler)
+    if args.uncert:
+        if args.train_text_encoder:
+            (uncert_net,unet, text_encoder, optimizer, train_dataloader, lr_scheduler) = accelerator.prepare(uncert_net, unet, text_encoder, optimizer, train_dataloader, lr_scheduler)
+        else:
+            (uncert_net, unet, optimizer, train_dataloader, lr_scheduler) = accelerator.prepare(uncert_net, unet, optimizer, train_dataloader, lr_scheduler)
     else:
-        (unet, optimizer, train_dataloader, lr_scheduler) = accelerator.prepare(unet, 
-                                          optimizer, train_dataloader, lr_scheduler)
+        if args.train_text_encoder:
+            (unet, text_encoder, optimizer, train_dataloader, lr_scheduler) = accelerator.prepare(unet, 
+                                            text_encoder, optimizer, train_dataloader, lr_scheduler)
+        else:
+            (unet, optimizer, train_dataloader, lr_scheduler) = accelerator.prepare(unet, 
+                                            optimizer, train_dataloader, lr_scheduler)
         
     vae.to(accelerator.device, dtype=weight_dtype)
     img_model.to(accelerator.device, dtype=weight_dtype)
     if not args.train_text_encoder:
         text_encoder.to(accelerator.device, dtype=weight_dtype)
-    num_update_steps_per_epoch = math.ceil(
-        len(train_dataloader) / args.gradient_accumulation_steps
-    )
+    num_update_steps_per_epoch = math.ceil( len(train_dataloader) / args.gradient_accumulation_steps)
     if overrode_max_train_steps:
         args.max_train_steps = args.num_train_epochs * num_update_steps_per_epoch
     # Afterwards we recalculate our number of training epochs
@@ -529,8 +556,8 @@ def main(args):
     global_step = 0
     last_save = 0
     guidance_scale = args.guidance_scale
-    original_prompt = "a <s1>|<s2> backpack"
-    edit_prompt = args.instance_prompt + " in the ocean"
+    original_prompt = "a <s1>|<s2> vase"
+    edit_prompt = args.instance_prompt + " on the beach"
     
     #######################begin the training process##################################
     for epoch in range(args.num_train_epochs):
@@ -581,7 +608,10 @@ def main(args):
                 # Add the prior loss to the instance loss.
                 loss = loss + args.prior_loss_weight * prior_loss
             else:
-                loss = F.mse_loss(model_pred.float(), target.float(), reduction="mean") + 0.1*F.mse_loss(text_pred.float(), target.float(), reduction="mean")
+                if args.uncert:
+                    loss = F.mse_loss(model_pred.float(), target.float(), reduction="mean") + 0.1*uncert_net( F.mse_loss(text_pred.float(), target.float(), reduction="none") )
+                else:    
+                    loss = F.mse_loss(model_pred.float(), target.float(), reduction="mean") + 0.1*F.mse_loss(text_pred.float(), target.float(), reduction="mean")
                 
             loss = loss/args.gradient_accumulation_steps              
             accelerator.backward(loss)
