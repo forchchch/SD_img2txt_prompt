@@ -25,4 +25,4 @@ CUDA_VISIBLE_DEVICES=1 accelerate launch dreambooth_disenft.py \
   --exp_name="t_disenft_0.1origin" \
   --train_text_encoder \
   --learning_rate_text=5e-5 \
-  --with_prior_preservation --prior_loss_weight=0.1\
+  # --with_prior_preservation --prior_loss_weight=0.1\

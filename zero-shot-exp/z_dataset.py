@@ -84,8 +84,8 @@ class z_Dataset(Dataset):
                                                         truncation=True,
                                                         max_length=self.tokenizer.model_max_length,).input_ids
         if self.text_reg:
-            scenario_img = Image.open(os.path.join(self.scenario_root, all_folders[int(index/img_per_scenario)], str(index%img_per_scenario)+".jpg"))
-            scenario_prompt = all_folders[int(index/img_per_scenario)]
+            scenario_img = Image.open(os.path.join(self.scenario_root, all_folders[ int(index/img_per_scenario)%len(all_folders) ], str(index%img_per_scenario)+".jpg"))
+            scenario_prompt = all_folders[int(index/img_per_scenario)%len(all_folders)]
             example["scenario_image"] = self.image_transforms(scenario_img)
             example["scenario_text"] = self.tokenizer(scenario_prompt,
                                                     padding="do_not_pad",
