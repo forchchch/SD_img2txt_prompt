@@ -2,10 +2,12 @@ import open_clip
 import torch
 from PIL import Image
 from torchvision import transforms
+import torch.nn as nn
 
 
-class Evaluator(object):
-    def __init__(self, device, model_name='ViT-B-32', source="laion2b_s32b_b79k"):
+class Evaluator(nn.Module):
+    def __init__(self, device, mtype = torch.float16, model_name='ViT-H-14', source="laion2b_s32b_b79k"):
+        super().__init__()
         self.device = device
         self.model_name = model_name
         if model_name.startswith('ViT'):
@@ -21,6 +23,7 @@ class Evaluator(object):
                                                     transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
                                                 ])                             # + skip convert PIL to tensor
         self.model = self.model.to(device)
+        self.type = mtype
     # input two PIL images    
     def image_similarity(self, src_images, generated_images):
         src_img_features = self.get_image_features(src_images)
@@ -36,7 +39,7 @@ class Evaluator(object):
 
 
     def encode_images(self, image):
-        image = self.preprocess(image).unsqueeze(0).to(self.device)
+        image = self.preprocess(image).unsqueeze(0).to(self.device).to(self.type)
         if self.model_name.startswith("ViT"):
             feature = self.model.encode_image(image)
         else:

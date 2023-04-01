@@ -8,22 +8,25 @@ from PIL import Image
 
 
 def dreambooth_save(pipe, prompt, save_dir, guidance_scale):
-    pipe = pipe.to("cuda")
-    pipe.scheduler = EulerAncestralDiscreteScheduler.from_config(pipe.scheduler.config)
-    tune_lora_scale(pipe.unet, 1.0)
-    tune_lora_scale(pipe.text_encoder, 1.0)
-    image = pipe(prompt, num_inference_steps=50, guidance_scale=guidance_scale).images[0]
-    image.save(save_dir)
+    with torch.no_grad():
+        pipe = pipe.to("cuda")
+        pipe.scheduler = EulerAncestralDiscreteScheduler.from_config(pipe.scheduler.config)
+        tune_lora_scale(pipe.unet, 1.0)
+        tune_lora_scale(pipe.text_encoder, 1.0)
+        image = pipe(prompt, num_inference_steps=50, guidance_scale=guidance_scale).images[0]
+        image.save(save_dir)
 
 
-def joint_visualization_train(pipe, i2t_prompt_model, prompt, guidance, save_dir, preprocess, eta=0.5):
+def joint_visualization_train(pipe, i2t_prompt_model, prompt, guidance, save_dir, preprocess, eta=0.5, img_adapter=None):
     num_images_per_prompt = 1
     test_num_inference_steps = 50
-    ref_image1 = preprocess(Image.open("/DATA/DATANAS1/chenhong/diffusion_research/dreambooth_data/vase/03.jpg")).unsqueeze(0).to("cuda")
+    ref_image1 = preprocess(Image.open("/DATA/DATANAS1/chenhong/diffusion_research/dreambooth_data/backpack/01.jpg")).unsqueeze(0).to("cuda")
     pipe.scheduler = EulerAncestralDiscreteScheduler.from_config(pipe.scheduler.config)
     with torch.no_grad():
         
         img_feature = i2t_prompt_model.encode_image( ref_image1 ).unsqueeze(1) 
+        if img_adapter is not None:
+            img_feature = img_adapter(img_feature)
         ###here we start to write the eidttable inference process
         if prompt is not None and isinstance(prompt, str):
             batch_size = 1
@@ -82,16 +85,16 @@ def joint_visualization_train(pipe, i2t_prompt_model, prompt, guidance, save_dir
             image = pipe.decode_latents(latents)
             image, has_nsfw_concept = pipe.run_safety_checker(image, device, prompt_embeds.dtype)
             image = pipe.numpy_to_pil(image)
-    print("hhhhh")
     image[0].save(save_dir)
 
-def joint_visualization(pipe, i2t_prompt_model, prompt, reference_image, guidance, eta=0.5):
-    num_images_per_prompt = 1
-    test_num_inference_steps = 50
+def joint_visualization(pipe, i2t_prompt_model, prompt, reference_image, guidance, eta=0.5, img_adapter=None, step=50, num_images_per_prompt = 1):
+    test_num_inference_steps = step
     pipe.scheduler = EulerAncestralDiscreteScheduler.from_config(pipe.scheduler.config)
     with torch.no_grad():
         
         img_feature = i2t_prompt_model.encode_image( reference_image ).unsqueeze(1) 
+        if img_adapter is not None:
+            img_feature = img_adapter(img_feature)
         ###here we start to write the eidttable inference process
         if prompt is not None and isinstance(prompt, str):
             batch_size = 1

@@ -6,9 +6,9 @@ from pathlib import Path
 
 actions = []
 scenarios = ["in the forest", "in the sky", "in the water", "in the room", "in the kitchen", "on the moon",
-             "at night", "on the beach", "in the sunshine", "under a sakura tree", "beside a river", "in the flowers", "in the ocean"]
+             "at night", "on the beach", "in the sunshine", "under a sakura tree", "beside a river", "in the flowers", "in the starry sky"]
 all_folders = actions + scenarios
-img_per_scenario = 25
+img_per_scenario = 20
 
 class DreamBoothDataset(Dataset):
     def __init__(
@@ -132,6 +132,8 @@ class DBScenarioDataset(Dataset):
         color_jitter=False,
         h_flip=False,
         resize=False,
+        use_scenario=False,
+        use_prior = False
     ):
         self.size = size
         self.center_crop = center_crop
@@ -147,8 +149,8 @@ class DBScenarioDataset(Dataset):
         self.instance_prompt = instance_prompt
         self._length = self.num_instance_images
 
-        print(class_data_root)
-        if class_data_root is not None:
+        self.use_prior = use_prior
+        if self.use_prior:
             self.class_data_root = Path(class_data_root)
             self.class_data_root.mkdir(parents=True, exist_ok=True)
             self.class_images_path = list(self.class_data_root.iterdir())
@@ -177,10 +179,11 @@ class DBScenarioDataset(Dataset):
             [*img_transforms, transforms.ToTensor(), transforms.Normalize([0.5], [0.5])]
         )
 
-        if scenario_root is not None:
+        self.use_scenario = use_scenario
+        if use_scenario:
             self.scenario_root = scenario_root
             self.num_scenario_image = len(all_folders) * img_per_scenario
-            self._length = max(self.num_instance_images, self.num_scenario_image)
+            self._length = max(self._length, self.num_scenario_image)
 
     def __len__(self):
         return self._length
@@ -200,7 +203,7 @@ class DBScenarioDataset(Dataset):
             max_length=self.tokenizer.model_max_length,
         ).input_ids
 
-        if self.class_data_root:
+        if self.use_prior:
             class_image = Image.open(
                 self.class_images_path[index % self.num_class_images]
             )
@@ -214,7 +217,7 @@ class DBScenarioDataset(Dataset):
                 max_length=self.tokenizer.model_max_length,
             ).input_ids
 
-        if self.scenario_root:
+        if self.use_scenario:
             scenario_img = Image.open(os.path.join(self.scenario_root, all_folders[int(index/img_per_scenario)], str(index%img_per_scenario)+".jpg"))
             scenario_prompt = all_folders[int(index/img_per_scenario)]
             example["scenario_images"] = self.image_transforms(scenario_img)

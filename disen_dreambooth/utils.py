@@ -2,6 +2,7 @@ import os
 import logging
 import torch
 
+
 def my_make_dir(out_root, exp_name):
     logging_dir = os.path.join(out_root, exp_name, "loggers")
     out_image_dir =  os.path.join(out_root, exp_name, "generated_images")
@@ -27,3 +28,9 @@ def get_logger(filename,name):
 
 def save_torch_model(model, path):
     torch.save(model.state_dict() ,path)
+
+def cal_cos(text, img, cos):
+    a = text.mean(dim=1)
+    sim = cos(a, img).mean()
+    return sim
+    

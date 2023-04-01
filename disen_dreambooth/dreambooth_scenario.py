@@ -33,6 +33,10 @@ from utils import my_make_dir, get_logger, save_torch_model
 from dataset import DreamBoothDataset, PromptDataset, DBScenarioDataset
 from visualization import dreambooth_save, joint_visualization_train
 import open_clip
+from disen_net import Image_adapter
+from utils import cal_cos
+from evaluation import obtain_metric
+from evaluator import Evaluator
 
 clip_trans = transforms.Resize( (224, 224), interpolation=transforms.InterpolationMode.BILINEAR)
 
@@ -130,6 +134,18 @@ def my_parse_args():
         "--scenario_weight",
         type=float,
         default=1.0,
+        help="The weight of scenario loss."
+    )
+    parser.add_argument(
+        "--global_weight",
+        type=float,
+        default=0.1,
+        help="The weight of scenario loss."
+    )
+    parser.add_argument(
+        "--disen",
+        type=float,
+        default=0.001,
         help="The weight of scenario loss."
     )
     parser.add_argument(
@@ -238,6 +254,11 @@ def my_parse_args():
         "--scale_lr",
         action="store_true",
         default=False,
+        help="Scale the learning rate by the number of GPUs, gradient accumulation steps, and batch size.",
+    )
+    parser.add_argument(
+        "--img_adapt",
+        action="store_true",
         help="Scale the learning rate by the number of GPUs, gradient accumulation steps, and batch size.",
     )
     parser.add_argument(
@@ -403,6 +424,10 @@ def main(args):
         subfolder="unet", revision=args.revision,)
     
     img_model, _, preprocess = open_clip.create_model_and_transforms('ViT-H-14', pretrained='laion2b_s32b_b79k') 
+    if args.img_adapt:
+        img_adapter = Image_adapter()
+    else:
+        img_adapter = None
     
     unet.requires_grad_(False)
     vae.requires_grad_(False)
@@ -435,33 +460,20 @@ def main(args):
         center_crop=args.center_crop,
         color_jitter=args.color_jitter,
         resize=args.resize,
+        use_scenario=args.with_scenario,
+        use_prior = args.with_prior_preservation
     )
 
     def collate_fn(examples):
         input_ids = [example["instance_prompt_ids"] for example in examples]
-        pixel_values = [example["instance_images"] for example in examples]
-
-        # Concat class and instance examples for prior preservation.
-        # We do this to avoid doing two forward passes.
-        if args.with_prior_preservation:
-            input_ids += [example["class_prompt_ids"] for example in examples]
-            pixel_values += [example["class_images"] for example in examples]
-            
+        pixel_values = [example["instance_images"] for example in examples]            
         pixel_values = torch.stack(pixel_values)
         pixel_values = pixel_values.to(memory_format=torch.contiguous_format).float()
 
-        input_ids = tokenizer.pad(
-            {"input_ids": input_ids},
-            padding="max_length",
-            max_length=tokenizer.model_max_length,
-            return_tensors="pt",
-        ).input_ids
-        if not args.with_scenario:
-            batch = {
-                "input_ids": input_ids,
-                "pixel_values": pixel_values,
-            }
-        else:
+        input_ids = tokenizer.pad( {"input_ids": input_ids}, padding="max_length", max_length=tokenizer.model_max_length, return_tensors="pt",).input_ids
+        batch = {"input_ids": input_ids, "pixel_values": pixel_values,}
+        
+        if args.with_scenario:
             scenario_ids = [example["scenario_ids"] for example in examples]
             scenario_values = [example["scenario_images"] for example in examples]
             scenario_values = torch.stack(scenario_values)
@@ -471,14 +483,24 @@ def main(args):
                 {'input_ids': scenario_ids},
                 padding="max_length",
                 max_length=tokenizer.model_max_length,
-                return_tensors="pt",
-            ).input_ids
-            batch = {
-                "input_ids": input_ids,
-                "pixel_values": pixel_values,
-                "scenario_ids": scenario_ids,
-                "scenario_values": scenario_values
-            }
+                return_tensors="pt",).input_ids
+            
+            batch["scenario_values"] = scenario_values
+            batch["scenario_ids"] = scenario_ids
+        if args.with_prior_preservation:
+            prior_ids = [example["class_prompt_ids"] for example in examples]
+            prior_values = [example["class_images"] for example in examples]
+            prior_values = torch.stack(prior_values)
+            prior_values = prior_values.to(memory_format=torch.contiguous_format).float()
+
+            prior_ids = tokenizer.pad(
+                {'input_ids': prior_ids},
+                padding="max_length",
+                max_length=tokenizer.model_max_length,
+                return_tensors="pt",).input_ids
+            
+            batch["prior_values"] = prior_values
+            batch["prior_ids"] = prior_ids            
         return batch
 
     train_dataloader = torch.utils.data.DataLoader(
@@ -503,6 +525,8 @@ def main(args):
             {"params": itertools.chain(*unet_lora_params), "lr": args.learning_rate},
         ]
     )
+    if args.img_adapt:
+        params_to_optimize.append( {"params": img_adapter.parameters(),"lr": args.learning_rate} )
     
     optimizer_class = torch.optim.AdamW
     optimizer = optimizer_class(
@@ -528,12 +552,18 @@ def main(args):
         weight_dtype = torch.float16
     elif accelerator.mixed_precision == "bf16":
         weight_dtype = torch.bfloat16
-    if args.train_text_encoder:
-        (unet, text_encoder, optimizer, train_dataloader, lr_scheduler) = accelerator.prepare(unet, 
-                                         text_encoder, optimizer, train_dataloader, lr_scheduler)
+    if args.img_adapt:
+        if args.train_text_encoder:
+            (unet, text_encoder, optimizer, train_dataloader, lr_scheduler, img_adapter) = accelerator.prepare(unet, 
+                                            text_encoder, optimizer, train_dataloader, lr_scheduler, img_adapter)
+        else:
+            (unet, optimizer, train_dataloader, lr_scheduler, img_adapter) = accelerator.prepare(unet, optimizer, train_dataloader, lr_scheduler, img_adapter)
     else:
-        (unet, optimizer, train_dataloader, lr_scheduler) = accelerator.prepare(unet, 
-                                          optimizer, train_dataloader, lr_scheduler)
+        if args.train_text_encoder:
+            (unet, text_encoder, optimizer, train_dataloader, lr_scheduler) = accelerator.prepare(unet, 
+                                            text_encoder, optimizer, train_dataloader, lr_scheduler)
+        else:
+            (unet, optimizer, train_dataloader, lr_scheduler) = accelerator.prepare(unet, optimizer, train_dataloader, lr_scheduler)
         
     vae.to(accelerator.device, dtype=weight_dtype)
     img_model.to(accelerator.device, dtype=weight_dtype)
@@ -570,10 +600,11 @@ def main(args):
     global_step = 0
     last_save = 0
     guidance_scale = args.guidance_scale
-    original_prompt = "a <s1>|<s2> backpack"
-    # edit_prompt = args.instance_prompt + " in the ocean"
-    edit_prompt = "a <s1>|<s2> backpack in the ocean"
-    
+    original_prompt = args.instance_prompt
+    cos = nn.CosineSimilarity(dim=1, eps=1e-6)
+    evaluator = Evaluator(device = accelerator.device, model_name = "ViT-H-14", mtype=weight_dtype).to(accelerator.device).to(weight_dtype)
+    ref_image = preprocess(Image.open("/DATA/DATANAS1/chenhong/diffusion_research/dreambooth_data/backpack/05.jpg")).unsqueeze(0).to(accelerator.device).to(weight_dtype)
+
     #######################begin the training process##################################
     for epoch in range(args.num_train_epochs):
         unet.train()
@@ -599,8 +630,9 @@ def main(args):
             with torch.no_grad():
                 img_state = img_model.encode_image( clip_trans(instance_images) ).unsqueeze(1)
             # Predict the noise residual
+            if args.img_adapt:
+                img_state = img_adapter(img_state)
             model_pred = unet(noisy_latents, timesteps, encoder_hidden_states + img_state).sample
-            text_pred = unet(noisy_latents, timesteps, encoder_hidden_states).sample
 
             # Get the target for loss depending on the prediction type
             if noise_scheduler.config.prediction_type == "epsilon":
@@ -609,24 +641,43 @@ def main(args):
                 target = noise_scheduler.get_velocity(latents, noise, timesteps)
             else:
                 raise ValueError(f"Unknown prediction type {noise_scheduler.config.prediction_type}")
+            loss_main = F.mse_loss(model_pred.float(), target.float(), reduction="mean") + args.disen*cal_cos(encoder_hidden_states, img_state, cos)
+            loss_main = loss_main/args.gradient_accumulation_steps
+            accelerator.backward(loss_main)
+            
+            if args.global_weight>0.0:
+                encoder_hidden_states = text_encoder(batch["input_ids"])[0]
+                text_pred = unet(noisy_latents, timesteps, encoder_hidden_states).sample
+                loss_common = args.global_weight*F.mse_loss(text_pred.float(), target.float(), reduction="mean")
+                loss_common = loss_common/args.gradient_accumulation_steps
+                accelerator.backward(loss_common)
 
             if args.with_prior_preservation:
-                model_pred, model_pred_prior = torch.chunk(model_pred, 2, dim=0)
-                target, target_prior = torch.chunk(target, 2, dim=0)
+                prior_images = batch["prior_values"].to(dtype=weight_dtype)
+                prior_ids = batch["prior_ids"]
 
-                # Compute instance loss
-                loss =  F.mse_loss(model_pred.float(), target.float(), reduction="mean")
+                prior_latents = vae.encode( prior_images ).latent_dist.sample()
+                prior_latents = prior_latents * 0.18215   
+                # Sample noise that we'll add to the latents
+                prior_noise = torch.randn_like(prior_latents)
+                prior_noisy_latents = noise_scheduler.add_noise(prior_latents, prior_noise, timesteps)
+                # Get the text embedding for conditioning
+                prior_text_prompt = text_encoder( prior_ids )[0]                 
 
-                # Compute prior loss
-                prior_loss = F.mse_loss( model_pred_prior.float(), target_prior.float(), reduction="mean" )
+                # Predict the noise residual
+                prior_model_pred = unet(prior_noisy_latents, timesteps, prior_text_prompt).sample
 
-                # Add the prior loss to the instance loss.
-                loss = loss + args.prior_loss_weight * prior_loss
-            else:
-                loss = F.mse_loss(model_pred.float(), target.float(), reduction="mean") + 0.1*F.mse_loss(text_pred.float(), target.float(), reduction="mean")
+                # Get the target for loss depending on the prediction type
+                if noise_scheduler.config.prediction_type == "epsilon":
+                    prior_target = prior_noise
+                elif noise_scheduler.config.prediction_type == "v_prediction":
+                    prior_target = noise_scheduler.get_velocity(prior_latents, prior_noise, timesteps)
+                else:
+                    raise ValueError(f"Unknown prediction type {noise_scheduler.config.prediction_type}")
 
-            loss = loss/args.gradient_accumulation_steps              
-            accelerator.backward(loss)
+                loss_prior = args.prior_loss_weight * F.mse_loss(prior_model_pred.float(), prior_target.float(), reduction="mean")
+                loss_prior = loss_prior/args.gradient_accumulation_steps          
+                accelerator.backward(loss_prior)
 
             if args.with_scenario:
                 scenario_images = batch["scenario_values"].to(dtype=weight_dtype)
@@ -651,10 +702,10 @@ def main(args):
                 else:
                     raise ValueError(f"Unknown prediction type {noise_scheduler.config.prediction_type}")
 
-                loss = args.scenario_weight * F.mse_loss(scenario_model_pred.float(), scenario_target.float(), reduction="mean")  
-                
-            loss = loss/args.gradient_accumulation_steps              
-            accelerator.backward(loss)
+                loss_scenario = args.scenario_weight * F.mse_loss(scenario_model_pred.float(), scenario_target.float(), reduction="mean")            
+                loss_scenario = loss_scenario/args.gradient_accumulation_steps
+                accelerator.backward(loss_scenario)
+
             global_step += 1
             if accelerator.sync_gradients:
                 params_to_clip = (
@@ -680,10 +731,14 @@ def main(args):
                                 args.pretrained_model_name_or_path,
                                 unet=accelerator.unwrap_model(unet, **extra_args),
                                 text_encoder=accelerator.unwrap_model(text_encoder, **extra_args),
-                                revision=args.revision,)
+                                revision=args.revision,
+                                torch_dtype=weight_dtype)
 
                             filename_unet = (f"{ocheck_dir}/lora_weight_e{epoch}_s{global_step}.pt")
                             filename_text_encoder = f"{ocheck_dir}/lora_weight_e{epoch}_s{global_step}.text_encoder.pt"
+                            if args.img_adapt:
+                                filename_img_adapter = f"{ocheck_dir}/lora_weight_e{epoch}_s{global_step}.img_adapter.pt"
+                                save_torch_model( accelerator.unwrap_model(img_adapter, **extra_args), filename_img_adapter)
                             logger.info(f"save weights {filename_unet}, {filename_text_encoder}")
                             save_lora_weight(pipeline.unet, filename_unet)
                             if args.train_text_encoder:
@@ -691,15 +746,16 @@ def main(args):
                                     pipeline.text_encoder,
                                     filename_text_encoder,
                                     target_replace_module=["CLIPAttention"])
-                            dreambooth_save(pipeline,  original_prompt, os.path.join(oimg_dir, str(epoch)+"_"+str(global_step)+"_"+"recon.jpg"), guidance_scale)
-                            dreambooth_save(pipeline, edit_prompt, os.path.join(oimg_dir, str(epoch)+"_"+str(global_step)+"_"+"edit.jpg"), guidance_scale)
-                            joint_visualization_train(pipeline, img_model, original_prompt, guidance_scale, os.path.join(oimg_dir, str(epoch)+"_"+str(global_step)+"_"+"recon_sum.jpg"), preprocess, eta=1.0)
+                            current_img_dir = os.path.join( oimg_dir, str(epoch)+"_"+str(global_step) )
+                            os.makedirs( current_img_dir, exist_ok=True)
+                            dreambooth_save(pipeline,  original_prompt, current_img_dir+"/recon.jpg", guidance_scale )
+                            joint_visualization_train(pipeline, img_model, original_prompt, guidance_scale, current_img_dir+"/recon_sum.jpg" , preprocess, eta=1.0, img_adapter=img_adapter)
+                            similarity = obtain_metric(pipeline, img_model, img_adapter, evaluator, ref_image, unique_token="backpack</w>", class_token=args.class_prompt, save_dir=current_img_dir, mode="train")
                             last_save = global_step
+                            logger.info(f"epoch:{epoch}, step:{step}, generation similarity:{similarity}")
 
-                logs = {"loss": loss.detach().item(), "lr": lr_scheduler.get_last_lr()[0]}
-                progress_bar.set_postfix(**logs)
-                accelerator.log(logs, step=global_step)
-                logger.info(f"epoch:{epoch}, step:{step}, loss:{loss.detach().item()}")
+                if global_step%10 == 0:
+                    logger.info(f"epoch:{epoch}, step:{step}, loss main:{loss_main.detach().item()}")
     accelerator.wait_for_everyone()
 
     # Create the pipeline using using the trained modules and save it.
@@ -708,7 +764,8 @@ def main(args):
             args.pretrained_model_name_or_path,
             unet=accelerator.unwrap_model(unet, **extra_args),
             text_encoder=accelerator.unwrap_model(text_encoder, **extra_args),
-            revision=args.revision,)
+            revision=args.revision,
+            torch_dtype = weight_dtype)
 
         filename_unet = (f"{ocheck_dir}/lora_weight_final.pt")
         filename_text_encoder = f"{ocheck_dir}/lora_weight_final.text_encoder.pt"
@@ -719,6 +776,9 @@ def main(args):
                 pipeline.text_encoder,
                 filename_text_encoder,
                 target_replace_module=["CLIPAttention"])
+        if args.img_adapt:
+            filename_img_adapter = f"{ocheck_dir}/lora_weight_final.img_adapter.pt"
+            save_torch_model( accelerator.unwrap_model(img_adapter, **extra_args), filename_img_adapter)
 
     accelerator.end_training()        
            
