@@ -166,6 +166,12 @@ class PromptDataset(Dataset):
 
 logger = get_logger(__name__)
 
+def gen_image(pipe, prompt, num_inference_steps, guidance_scale, save_path):
+    os.makedirs(save_path, exist_ok=True)
+    pipe = pipe.to("cuda")
+    image = pipe("a backpack</w> " + prompt, num_inference_steps=num_inference_steps, guidance_scale=guidance_scale).images[0]
+    image.save(os.path.join(save_path, f"{prompt}.jpg"))
+
 
 def parse_args(input_args=None):
     parser = argparse.ArgumentParser(description="Simple example of a training script.")
@@ -563,6 +569,7 @@ def main(args):
 
         if args.output_dir is not None:
             os.makedirs(args.output_dir, exist_ok=True)
+            os.makedirs(f"{args.output_dir}/checkpoints", exist_ok=True)
 
     # Load the tokenizer
     if args.tokenizer_name:
@@ -918,9 +925,9 @@ def main(args):
                         )
 
                         filename_unet = (
-                            f"{args.output_dir}/lora_weight_e{epoch}_s{global_step}.pt"
+                            f"{args.output_dir}/checkpoints/lora_weight_e{epoch}_s{global_step}.pt"
                         )
-                        filename_text_encoder = f"{args.output_dir}/lora_weight_e{epoch}_s{global_step}.text_encoder.pt"
+                        filename_text_encoder = f"{args.output_dir}/checkpoints/lora_weight_e{epoch}_s{global_step}.text_encoder.pt"
                         print(f"save weights {filename_unet}, {filename_text_encoder}")
                         save_lora_weight(pipeline.unet, filename_unet)
                         if args.train_text_encoder:
@@ -929,6 +936,14 @@ def main(args):
                                 filename_text_encoder,
                                 target_replace_module=["CLIPAttention"],
                             )
+
+                        baseprompt = "backpack"
+                        steps = 100
+                        gen_image(pipeline, baseprompt, steps, 7.0, f"{args.output_dir}/generate_images/{epoch}_{step}")
+                        gen_image(pipeline, baseprompt + " in the Grand Canyon", steps, 7.0, f"{args.output_dir}/generate_images/{epoch}_{step}")
+                        gen_image(pipeline, baseprompt + " in water", steps, 7.0, f"{args.output_dir}/generate_images/{epoch}_{step}")
+                        gen_image(pipeline, baseprompt + " in the Bolivian salt flats", steps, 7.0, f"{args.output_dir}/generate_images/{epoch}_{step}")
+                        gen_image(pipeline, baseprompt + " on the moon", steps, 7.0, f"{args.output_dir}/generate_images/{epoch}_{step}")
 
                         for _up, _down in extract_lora_ups_down(pipeline.unet):
                             print(

@@ -53,32 +53,32 @@ import re
 
 imagenet_templates_small = [
     "a photo of a {}",
-    "a rendering of a {}",
-    "a cropped photo of the {}",
-    "the photo of a {}",
-    "a photo of a clean {}",
-    "a photo of a dirty {}",
-    "a dark photo of the {}",
-    "a photo of my {}",
-    "a photo of the cool {}",
-    "a close-up photo of a {}",
-    "a bright photo of the {}",
-    "a cropped photo of a {}",
-    "a photo of the {}",
-    "a good photo of the {}",
-    "a photo of one {}",
-    "a close-up photo of the {}",
-    "a rendition of the {}",
-    "a photo of the clean {}",
-    "a rendition of a {}",
-    "a photo of a nice {}",
-    "a good photo of a {}",
-    "a photo of the nice {}",
-    "a photo of the small {}",
-    "a photo of the weird {}",
-    "a photo of the large {}",
-    "a photo of a cool {}",
-    "a photo of a small {}",
+    # "a rendering of a {}",
+    # "a cropped photo of the {}",
+    # "the photo of a {}",
+    # "a photo of a clean {}",
+    # "a photo of a dirty {}",
+    # "a dark photo of the {}",
+    # "a photo of my {}",
+    # "a photo of the cool {}",
+    # "a close-up photo of a {}",
+    # "a bright photo of the {}",
+    # "a cropped photo of a {}",
+    # "a photo of the {}",
+    # "a good photo of the {}",
+    # "a photo of one {}",
+    # "a close-up photo of the {}",
+    # "a rendition of the {}",
+    # "a photo of the clean {}",
+    # "a rendition of a {}",
+    # "a photo of a nice {}",
+    # "a good photo of a {}",
+    # "a photo of the nice {}",
+    # "a photo of the small {}",
+    # "a photo of the weird {}",
+    # "a photo of the large {}",
+    # "a photo of a cool {}",
+    # "a photo of a small {}",
 ]
 
 imagenet_style_templates_small = [
@@ -227,6 +227,7 @@ class DreamBoothTiDataset(Dataset):
                 + _shuffle(_randomset(self.stochastic_attribute))
             )
         )
+        # print(text)
         example["instance_prompt_ids"] = self.tokenizer(
             text,
             padding="do_not_pad",
@@ -269,6 +270,12 @@ class PromptDataset(Dataset):
 
 
 logger = get_logger(__name__)
+
+def gen_image(pipe, prompt, num_inference_steps, guidance_scale, save_path):
+    os.makedirs(save_path, exist_ok=True)
+    pipe = pipe.to("cuda")
+    image = pipe(prompt, num_inference_steps=num_inference_steps, guidance_scale=guidance_scale).images[0]
+    image.save(os.path.join(save_path, f"{prompt}.jpg"))
 
 
 def save_progress(text_encoder, placeholder_token_id, accelerator, args, save_path):
@@ -718,6 +725,7 @@ def main(args):
 
         if args.output_dir is not None:
             os.makedirs(args.output_dir, exist_ok=True)
+            os.makedirs(f"{args.output_dir}/checkpoints", exist_ok=True)
 
     # Load the tokenizer
     if args.tokenizer_name:
@@ -1056,6 +1064,8 @@ def main(args):
             else:
                 loss = F.mse_loss(model_pred.float(), target.float(), reduction="mean")
 
+            loss = loss / args.gradient_accumulation_steps
+
             accelerator.backward(loss)
             if accelerator.sync_gradients:
                 params_to_clip = (
@@ -1065,10 +1075,12 @@ def main(args):
                 )
                 accelerator.clip_grad_norm_(params_to_clip, args.max_grad_norm)
 
-            optimizer.step()
-            lr_scheduler.step()
-            progress_bar.update(1)
-            optimizer.zero_grad()
+            if (global_step + 1) % args.gradient_accumulation_steps == 0:
+
+                optimizer.step()
+                lr_scheduler.step()
+                progress_bar.update(1)
+                optimizer.zero_grad()
 
             # Let's make sure we don't update any embedding weights besides the newly added token
             index_no_updates = torch.arange(len(tokenizer)) != placeholder_token_id
@@ -1107,9 +1119,9 @@ def main(args):
                         )
 
                         filename_unet = (
-                            f"{args.output_dir}/lora_weight_e{epoch}_s{global_step}.pt"
+                            f"{args.output_dir}/checkpoints/lora_weight_e{epoch}_s{global_step}.pt"
                         )
-                        filename_text_encoder = f"{args.output_dir}/lora_weight_e{epoch}_s{global_step}.text_encoder.pt"
+                        filename_text_encoder = f"{args.output_dir}/checkpoints/lora_weight_e{epoch}_s{global_step}.text_encoder.pt"
                         print(f"save weights {filename_unet}, {filename_text_encoder}")
                         save_lora_weight(pipeline.unet, filename_unet)
 
@@ -1118,6 +1130,13 @@ def main(args):
                             filename_text_encoder,
                             target_replace_module=["CLIPAttention"],
                         )
+
+                        baseprompt = "a photo of <krkbackpack>"
+                        gen_image(pipeline, baseprompt, 50, 7.0, f"{args.output_dir}/generate_images/{epoch}_{step}")
+                        gen_image(pipeline, baseprompt + " in the Grand Canyon", 50, 7.0, f"{args.output_dir}/generate_images/{epoch}_{step}")
+                        gen_image(pipeline, baseprompt + " in water", 50, 7.0, f"{args.output_dir}/generate_images/{epoch}_{step}")
+                        gen_image(pipeline, baseprompt + " in the Bolivian salt flats", 50, 7.0, f"{args.output_dir}/generate_images/{epoch}_{step}")
+                        gen_image(pipeline, baseprompt + " on the moon", 50, 7.0, f"{args.output_dir}/generate_images/{epoch}_{step}")
 
                         for _up, _down in extract_lora_ups_down(pipeline.unet):
                             print(
@@ -1144,7 +1163,7 @@ def main(args):
                             )
                             break
 
-                        filename_ti = f"{args.output_dir}/lora_weight_e{epoch}_s{global_step}.ti.pt"
+                        filename_ti = f"{args.output_dir}/checkpoints/lora_weight_e{epoch}_s{global_step}.ti.pt"
 
                         save_progress(
                             pipeline.text_encoder,

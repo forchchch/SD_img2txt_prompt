@@ -1,28 +1,30 @@
  #https://github.com/huggingface/diffusers/tree/main/examples/dreambooth
 # export MODEL_NAME="runwayml/stable-diffusion-v1-5"
-export MODEL_NAME="stabilityai/stable-diffusion-2-1-base"
-export INSTANCE_DIR="./data_example_pt"
-export OUTPUT_DIR="./output_example_tisd2-1"
+export MODEL_NAME="/DATA/DATANAS1/zhangyip/models/stable-diffusion-2-1-base"
+export INSTANCE_DIR="/DATA/DATANAS1/chenhong/diffusion_research/dreambooth_data/backpack"
+export OUTPUT_DIR="./output_dirs/ti_baseline_krkbackpack_6"
 
-CUDA_VISIBLE_DEVICES=1 accelerate launch train_lora_w_ti.py \
+CUDA_VISIBLE_DEVICES=3 accelerate launch train_lora_w_ti.py \
   --pretrained_model_name_or_path=$MODEL_NAME  \
   --instance_data_dir=$INSTANCE_DIR \
   --output_dir=$OUTPUT_DIR \
   --train_text_encoder \
   --resolution=256 \
-  --train_batch_size=1 \
+  --train_batch_size=2 \
   --gradient_accumulation_steps=1 \
   --learning_rate=1e-4 \
-  --learning_rate_text=1e-5 \
-  --learning_rate_ti=5e-4 \
+  --learning_rate_text=5e-5 \
+  --learning_rate_ti=1e-3 \
   --color_jitter \
   --lr_scheduler="constant" \
-  --lr_warmup_steps=100 \
-  --max_train_steps=6000 \
-  --placeholder_token="<krk>" \
+  --lr_warmup_steps=200 \
+  --max_train_steps=10000 \
+  --placeholder_token="<krkbackpack>" \
   --learnable_property="object"\
-  --initializer_token="man" \
-  --save_steps=500 \
-  --unfreeze_lora_step=1500 \
-  --stochastic_attribute="young, Asian man, wearing glasses" # these attributes will be randomly appended to the prompts
-  
+  --initializer_token="backpack" \
+  --save_steps=200 \
+  --unfreeze_lora_step=5000 \
+  --stochastic_attribute="" \
+  # --scale_lr \
+  # --just_ti
+  # --stochastic_attribute="in the flowers, on the moon, in the forest, on the beach, in the water" # these attributes will be randomly appended to the prompts

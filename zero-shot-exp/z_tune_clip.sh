@@ -5,7 +5,7 @@ export INSTANCE_DIR="./training_data/images"
 export SCENARIO_DIR="./training_data/aux_images"
 export OUTPUT_DIR="./output"
 
-CUDA_VISIBLE_DEVICES=1 accelerate launch z_tune_clip.py \
+CUDA_VISIBLE_DEVICES=2 accelerate launch z_tune_clip.py \
   --pretrained_model_name_or_path=$MODEL_NAME  \
   --instance_data_dir=$INSTANCE_DIR \
   --scenario_data_dir=$SCENARIO_DIR \
