@@ -2,6 +2,8 @@ from visualization import joint_visualization
 from evaluator import Evaluator
 import os
 import torch
+import numpy
+from PIL import Image
 
 
 def get_prompt_list(unique_token, class_token, mode="train"):
@@ -92,3 +94,30 @@ def obtain_metric(pipe, img_model, adapter, evaluator, ref_image ,unique_token, 
             similarity += sim
         similarity = similarity/len(prompt_list)
     return similarity
+
+def reconstruction_metric(origin_data_root, generated_data_root, evaluator):
+    avg_sim = 0.0
+    origin_pic_list = os.listdir(origin_data_root)
+    gen_pic_list = os.listdir(generated_data_root)
+    for m in range( len(origin_pic_list) ):
+        origin_path = os.path.join( origin_data_root, origin_pic_list[m] )
+        origin_image = Image.open( origin_path )
+        for n in range( len(gen_pic_list) ):
+            gen_path = os.path.join( generated_data_root, gen_pic_list[n] )
+            gen_image = Image.open(gen_path)
+            sim = evaluator.image_similarity(origin_image, gen_image).cpu().numpy()
+            avg_sim += sim
+    avg_sim /= len(origin_pic_list)*len(gen_pic_list)
+    return avg_sim
+
+def text_img_match_metric(generated_root, evaluator, unique_token="", class_token="backpack", mode="object"):
+    prompt_list = get_prompt_list(unique_token, class_token)
+    avg_sim = 0.0
+    for m in range( len(prompt_list) ):
+        img_path = os.path.join( generated_root, str(m)+".jpg" )
+        gen_img = Image.open( img_path )
+        prompt = prompt_list[m]
+        sim = evaluator.txt_img_similarity(prompt, gen_img).cpu().numpy()
+        avg_sim += sim
+    return avg_sim/len(prompt_list)
+    

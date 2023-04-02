@@ -6,7 +6,7 @@ import torch.nn as nn
 
 
 class Evaluator(nn.Module):
-    def __init__(self, device, mtype = torch.float16, model_name='ViT-H-14', source="laion2b_s32b_b79k"):
+    def __init__(self, device, mtype = torch.float32, model_name='ViT-H-14', source="laion2b_s32b_b79k"):
         super().__init__()
         self.device = device
         self.model_name = model_name
