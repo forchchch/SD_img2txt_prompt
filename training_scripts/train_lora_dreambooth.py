@@ -922,7 +922,7 @@ def main(args):
                             ),
                             revision=args.revision,
                         )
-                        pipeline.scheduler = EulerAncestralDiscreteScheduler.from_config(pipe.scheduler.config)
+                        pipeline.scheduler = EulerAncestralDiscreteScheduler.from_config(pipeline.scheduler.config)
                         pipeline = pipeline.to("cuda")
 
                         filename_unet = (
