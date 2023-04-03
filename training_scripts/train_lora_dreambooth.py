@@ -22,6 +22,7 @@ from diffusers import (
     AutoencoderKL,
     DDPMScheduler,
     StableDiffusionPipeline,
+    EulerAncestralDiscreteScheduler, 
     UNet2DConditionModel,
 )
 from diffusers.optimization import get_scheduler
@@ -166,12 +167,10 @@ class PromptDataset(Dataset):
 
 logger = get_logger(__name__)
 
-def gen_image(pipe, prompt, num_inference_steps, guidance_scale, save_path):
+def gen_image(pipe, prompt, scenario, num_inference_steps, guidance_scale, save_path):
     os.makedirs(save_path, exist_ok=True)
-    pipe = pipe.to("cuda")
-    image = pipe("a backpack</w> " + prompt, num_inference_steps=num_inference_steps, guidance_scale=guidance_scale).images[0]
-    image.save(os.path.join(save_path, f"{prompt}.jpg"))
-
+    image = pipe(prompt + scenario, num_inference_steps=num_inference_steps, guidance_scale=guidance_scale).images[0]
+    image.save(os.path.join(save_path, f"object{scenario}.jpg"))
 
 def parse_args(input_args=None):
     parser = argparse.ArgumentParser(description="Simple example of a training script.")
@@ -923,6 +922,8 @@ def main(args):
                             ),
                             revision=args.revision,
                         )
+                        pipeline.scheduler = EulerAncestralDiscreteScheduler.from_config(pipe.scheduler.config)
+                        pipeline = pipeline.to("cuda")
 
                         filename_unet = (
                             f"{args.output_dir}/checkpoints/lora_weight_e{epoch}_s{global_step}.pt"
@@ -937,13 +938,13 @@ def main(args):
                                 target_replace_module=["CLIPAttention"],
                             )
 
-                        baseprompt = "backpack"
-                        steps = 100
-                        gen_image(pipeline, baseprompt, steps, 7.0, f"{args.output_dir}/generate_images/{epoch}_{step}")
-                        gen_image(pipeline, baseprompt + " in the Grand Canyon", steps, 7.0, f"{args.output_dir}/generate_images/{epoch}_{step}")
-                        gen_image(pipeline, baseprompt + " in water", steps, 7.0, f"{args.output_dir}/generate_images/{epoch}_{step}")
-                        gen_image(pipeline, baseprompt + " in the Bolivian salt flats", steps, 7.0, f"{args.output_dir}/generate_images/{epoch}_{step}")
-                        gen_image(pipeline, baseprompt + " on the moon", steps, 7.0, f"{args.output_dir}/generate_images/{epoch}_{step}")
+                        baseprompt = f"a {args.instance_prompt} {args.class_prompt}"
+                        steps = 50
+                        gen_image(pipeline, baseprompt, "", steps, 7.0, f"{args.output_dir}/generate_images/{epoch}_{step}")
+                        gen_image(pipeline, baseprompt, " in the Grand Canyon", steps, 7.0, f"{args.output_dir}/generate_images/{epoch}_{step}")
+                        gen_image(pipeline, baseprompt, " in water", steps, 7.0, f"{args.output_dir}/generate_images/{epoch}_{step}")
+                        gen_image(pipeline, baseprompt, " in the Bolivian salt flats", steps, 7.0, f"{args.output_dir}/generate_images/{epoch}_{step}")
+                        gen_image(pipeline, baseprompt, " on the moon", steps, 7.0, f"{args.output_dir}/generate_images/{epoch}_{step}")
 
                         for _up, _down in extract_lora_ups_down(pipeline.unet):
                             print(
