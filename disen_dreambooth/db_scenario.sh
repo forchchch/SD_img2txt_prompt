@@ -6,7 +6,7 @@ export OUTPUT_DIR="./output_dreambooth/our_versions"
 export CLASS_DIR="./class_data/backpack"
 export SCENARIO_DIR="/DATA/DATANAS1/chenhong/diffusion_research/lora/zero-shot-exp/training_data/aux_images"
 
-CUDA_VISIBLE_DEVICES=0 accelerate launch dreambooth_scenario.py \
+CUDA_VISIBLE_DEVICES=3 accelerate launch dreambooth_scenario.py \
   --pretrained_model_name_or_path=$MODEL_NAME  \
   --instance_data_dir=$INSTANCE_DIR \
   --output_dir=$OUTPUT_DIR \
@@ -23,10 +23,10 @@ CUDA_VISIBLE_DEVICES=0 accelerate launch dreambooth_scenario.py \
   --max_train_steps=3000 \
   --save_steps=100 \
   --lora_rank=4 \
-  --exp_name="my_base_global0.05" \
-  --global_weight=0.05 \
+  --exp_name="my_base_global0.001_scenario0.01" \
+  --global_weight=0.001 \
   --img_adapt \
   --disen=0.0 \
-  # --with_scenario --scenario_weight=0.01 \
+  --with_scenario --scenario_weight=0.01 \
   # --with_prior_preservation --prior_loss_weight=0.01 \
   # --train_text_encoder --learning_rate_text=1e-4 \

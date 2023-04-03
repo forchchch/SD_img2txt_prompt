@@ -21,10 +21,11 @@ class Image_adapter(nn.Module):
             nn.ReLU(),
             nn.Linear(hidden_size, hidden_size)
         )
-
+        self.mask = nn.Parameter(torch.zeros(hidden_size))
+        self.sigmoid = nn.Sigmoid()
         
         
     def forward(self, feature):
-        out_feature = self.adapter(feature) + feature
+        out_feature = self.adapter(feature) + self.sigmoid(self.mask)*feature
 
         return out_feature     
