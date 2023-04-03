@@ -60,9 +60,9 @@ if __name__ == "__main__":
             "learning_rate": 1e-4,
             "learning_rate_text": 5e-5,
             "lr_scheduler": "constant",
-            "save_steps": 500,
+            "save_steps": 100,
             "lr_warmup_steps": 0,
-            "max_train_steps": 5000,
-            "with_prior_preservation": 1.0,
+            "max_train_steps": 3000,
+            "with_prior_preservation": 0.5,
         }
         trial(args)
