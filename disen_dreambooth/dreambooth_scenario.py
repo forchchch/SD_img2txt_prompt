@@ -76,6 +76,18 @@ def my_parse_args():
         help="Pretrained tokenizer name or path if not the same as model_name",
     )
     parser.add_argument(
+        "--special_token",
+        type=str,
+        default=None,
+        help="special tokens",
+    )
+    parser.add_argument(
+        "--reference_folder_name",
+        type=str,
+        default=None,
+        help="reference folder name",
+    )
+    parser.add_argument(
         "--guidance_scale",
         type=float,
         default=7.0,
@@ -601,8 +613,9 @@ def main(args):
     last_save = 0
     guidance_scale = args.guidance_scale
     original_prompt = args.instance_prompt
+    edit_prompt = args.instance_prompt + " in front of a blue house"
     cos = nn.CosineSimilarity(dim=1, eps=1e-6)
-    ref_image = preprocess(Image.open("/DATA/DATANAS1/chenhong/diffusion_research/dreambooth_data/backpack/05.jpg")).unsqueeze(0).to(accelerator.device).to(weight_dtype)
+    ref_image = preprocess(Image.open("/DATA/DATANAS1/chenhong/diffusion_research/dreambooth_data/" + args.reference_folder_name + "/01.jpg")).unsqueeze(0).to(accelerator.device).to(weight_dtype)
 
     #######################begin the training process##################################
     for epoch in range(args.num_train_epochs):
@@ -643,7 +656,7 @@ def main(args):
             loss_main = F.mse_loss(model_pred.float(), target.float(), reduction="mean") 
             if args.global_weight>0.0:
                 text_pred = unet(noisy_latents, timesteps, encoder_hidden_states).sample
-                loss_main += args.global_weight*F.mse_loss(text_pred.float(), target.float(), reduction="mean") 
+                loss_main += args.global_weight*F.mse_loss(text_pred.float(), target.float(), reduction="mean") + args.disen*cal_cos(encoder_hidden_states, img_state, cos)
                 loss_main = loss_main/args.gradient_accumulation_steps
             accelerator.backward(loss_main)
 
@@ -713,7 +726,6 @@ def main(args):
                 lr_scheduler.step()
                 progress_bar.update(1)
                 optimizer.zero_grad()
-                torch.cuda.empty_cache()
                 if accelerator.sync_gradients:
                     if args.save_steps and (global_step - last_save)/args.gradient_accumulation_steps >= args.save_steps:
                         if accelerator.is_main_process:
@@ -746,10 +758,11 @@ def main(args):
                             os.makedirs( current_img_dir, exist_ok=True)
                             dreambooth_save(pipeline,  original_prompt, current_img_dir+"/recon.jpg", guidance_scale )
                             joint_visualization_train(pipeline, img_model, original_prompt, guidance_scale, current_img_dir+"/recon_sum.jpg" , preprocess, eta=1.0, img_adapter=img_adapter)
-                            evaluator = Evaluator(device = accelerator.device, model_name = "ViT-H-14", mtype=weight_dtype).to(accelerator.device).to(weight_dtype)
-                            similarity = obtain_metric(pipeline, img_model, img_adapter, evaluator, ref_image, unique_token="backpack</w>", class_token=args.class_prompt, save_dir=current_img_dir, mode="train")
+                            dreambooth_save(pipeline,  edit_prompt, current_img_dir+"/edit.jpg", guidance_scale )
+                            #evaluator = Evaluator(device = accelerator.device, model_name = "ViT-H-14", mtype=weight_dtype).to(accelerator.device).to(weight_dtype)
+                            #similarity = obtain_metric(pipeline, img_model, img_adapter, evaluator, ref_image, unique_token=args.special_token, class_token=args.class_prompt, save_dir=current_img_dir, mode="train")
                             last_save = global_step
-                            logger.info(f"epoch:{epoch}, step:{step}, generation similarity:{similarity}")
+                            #logger.info(f"epoch:{epoch}, step:{step}, generation similarity:{similarity}")
 
                 if global_step%10 == 0:
                     logger.info(f"epoch:{epoch}, step:{step}, loss main:{loss_main.detach().item()}")

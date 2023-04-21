@@ -13,6 +13,7 @@ def dreambooth_save(pipe, prompt, save_dir, guidance_scale):
         pipe.scheduler = EulerAncestralDiscreteScheduler.from_config(pipe.scheduler.config)
         tune_lora_scale(pipe.unet, 1.0)
         tune_lora_scale(pipe.text_encoder, 1.0)
+        print("prompt:", prompt)
         image = pipe(prompt, num_inference_steps=50, guidance_scale=guidance_scale).images[0]
         image.save(save_dir)
 
@@ -22,6 +23,7 @@ def joint_visualization_train(pipe, i2t_prompt_model, prompt, guidance, save_dir
     test_num_inference_steps = 50
     ref_image1 = preprocess(Image.open("/DATA/DATANAS1/chenhong/diffusion_research/dreambooth_data/backpack/01.jpg")).unsqueeze(0).to("cuda")
     pipe.scheduler = EulerAncestralDiscreteScheduler.from_config(pipe.scheduler.config)
+    print("prompt:", prompt)
     with torch.no_grad():
         
         img_feature = i2t_prompt_model.encode_image( ref_image1 ).unsqueeze(1) 
@@ -87,7 +89,7 @@ def joint_visualization_train(pipe, i2t_prompt_model, prompt, guidance, save_dir
             image = pipe.numpy_to_pil(image)
     image[0].save(save_dir)
 
-def joint_visualization(pipe, i2t_prompt_model, prompt, reference_image, guidance, eta=0.5, img_adapter=None, step=50, num_images_per_prompt = 1):
+def joint_visualization(pipe, i2t_prompt_model, prompt, reference_image, guidance, eta=0.5, img_adapter=None, step=50, num_images_per_prompt = 1, alpha = 1.0):
     test_num_inference_steps = step
     pipe.scheduler = EulerAncestralDiscreteScheduler.from_config(pipe.scheduler.config)
     with torch.no_grad():
@@ -110,7 +112,8 @@ def joint_visualization(pipe, i2t_prompt_model, prompt, reference_image, guidanc
                 prompt_embeds = None,
                 negative_prompt_embeds = None)
         img_feature = torch.cat([torch.zeros_like(img_feature),img_feature]) if do_classifier_free_guidance else img_feature
-        tv_prompt = eta*img_feature + prompt_embeds
+        img_feature = torch.cat([img_feature]*num_images_per_prompt)
+        tv_prompt = eta*img_feature + alpha*prompt_embeds
         #tv_prompt = torch.cat([prompt_embeds,i2t_emb], dim=1)
 
         pipe.scheduler.set_timesteps(test_num_inference_steps, device=device)

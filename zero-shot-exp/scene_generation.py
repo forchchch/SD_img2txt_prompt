@@ -11,9 +11,11 @@ from torch.utils.data import Dataset
 import hashlib
 import os
 
-actions = ["running", "lying", "dancing", "standing", "sitting", "flying"]
-scenarios = ["in the forest", "in the sky", "in the water", "in the room", "in the kitchen", "on the moon",
-             "at night", "on the beach", "in the sunshine", "under a sakura tree", "beside a river", "in the flowers"]
+# actions = ["running", "lying", "dancing", "standing", "sitting", "flying"]
+# scenarios = ["in the forest", "in the sky", "in the water", "in the room", "in the kitchen", "on the moon",
+#              "at night", "on the beach", "in the sunshine", "under a sakura tree", "beside a river", "in the flowers"]
+actions = []
+scenarios = ["in the starry sky"]
 out_root = "./training_data/aux_images"
 
 class PromptDataset(Dataset):
@@ -33,7 +35,7 @@ class PromptDataset(Dataset):
 
 
 images_per_prompt = 20
-model_id = "stabilityai/stable-diffusion-2-1-base"
+model_id = "/DATA/DATANAS1/zhangyip/models/stable-diffusion-2-1-base"
 accelerator = Accelerator(gradient_accumulation_steps = 4, mixed_precision=None)
 torch_dtype = ( torch.float16 if accelerator.device.type == "cuda" else torch.float32)
 pipeline = StableDiffusionPipeline.from_pretrained(model_id, torch_dtype=torch_dtype, safety_checker=None)

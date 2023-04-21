@@ -19,3 +19,4 @@ open_clip
 training_dataset
 *.jpg
 dreambooth
+generated_pictures

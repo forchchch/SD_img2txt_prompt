@@ -30,8 +30,8 @@ def save_torch_model(model, path):
     torch.save(model.state_dict() ,path)
 
 def cal_cos(text, img, cos):
-    a = text.view(text.size()[0], -1)
-    b = img.view(img.size()[0], -1)
+    a = text.mean(dim=1)
+    b = img
     sim = cos(a, b).mean()
     return sim
     
